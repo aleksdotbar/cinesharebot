@@ -1,3 +1,4 @@
+import * as R from "remeda"
 import { Bot, InlineQueryResultBuilder } from "grammy"
 import { getQueryResults, QueryResult } from "./api"
 
@@ -27,8 +28,10 @@ const toPhotoResult = (m: QueryResult) => {
   const emoji = m.type === "movie" ? "📽" : "📺"
   const title = `${m.title}${m.year ? ` (${m.year})` : ""}`
 
-  return InlineQueryResultBuilder.photo(m.id, m.poster, {
-    thumbnail_url: m.thumb,
+  return InlineQueryResultBuilder.photo(m.id, m.poster.url, {
+    thumbnail_url: m.thumb.url,
+    photo_width: m.poster.width,
+    photo_height: m.poster.height,
     caption: `${emoji} <b>${title}</b>`,
     parse_mode: "HTML",
   })
@@ -36,9 +39,12 @@ const toPhotoResult = (m: QueryResult) => {
 
 bot.on("inline_query", async (ctx) => {
   try {
-    const results = await getQueryResults(ctx.inlineQuery.query.trim())
+    const results = R.pipe(
+      await getQueryResults(ctx.inlineQuery.query.trim()),
+      R.map(toPhotoResult)
+    )
 
-    ctx.answerInlineQuery(results.map(toPhotoResult), { cache_time: 0 })
+    ctx.answerInlineQuery(results, { cache_time: 0 })
   } catch (error) {
     console.error(error)
   }
