@@ -36,9 +36,9 @@ const toPhotoResult = (m: QueryResult) => {
 
 bot.on("inline_query", async (ctx) => {
   try {
-    const results = await getQueryResults(ctx.inlineQuery.query).then((r) => r.map(toPhotoResult))
+    const results = await getQueryResults(ctx.inlineQuery.query.trim())
 
-    ctx.answerInlineQuery(results, { cache_time: 0 })
+    ctx.answerInlineQuery(results.map(toPhotoResult), { cache_time: 0 })
   } catch (error) {
     console.error(error)
   }

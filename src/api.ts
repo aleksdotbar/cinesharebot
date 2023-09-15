@@ -36,8 +36,10 @@ const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): QueryResult =>
 
 const api = new TMDB(Bun.env.TMDB_TOKEN ?? "")
 
-export const getQueryResults = async (q: string): Promise<QueryResult[]> => {
-  const data = q ? await api.search.multi({ query: q }) : await api.trending.trending("all", "week")
+export const getQueryResults = async (query: string): Promise<QueryResult[]> => {
+  const data = query
+    ? await api.search.multi({ query })
+    : await api.trending.trending("all", "week")
 
   return data.results.filter(isMovieOrTV).map(parseMovieOrTV)
 }
