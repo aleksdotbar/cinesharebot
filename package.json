@@ -1,0 +1,21 @@
+{
+  "name": "cineshare",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run poll.ts",
+    "start": "bun run webhook.ts"
+  },
+  "devDependencies": {
+    "@total-typescript/ts-reset": "^0.5.1",
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "effect": "^2.0.0-next.34",
+    "grammy": "^1.18.1",
+    "tmdb-ts": "^1.4.0"
+  }
+}
