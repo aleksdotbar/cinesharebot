@@ -7,7 +7,6 @@
     "start": "bun run ./src/webhook.ts"
   },
   "devDependencies": {
-    "@total-typescript/ts-reset": "^0.5.1",
     "bun-types": "latest"
   },
   "peerDependencies": {
