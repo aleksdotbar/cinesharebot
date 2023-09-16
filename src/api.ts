@@ -16,11 +16,8 @@ if (!IMAGINARY_URL) {
   throw new Error("IMAGINARY_URL is not set")
 }
 
-// const imageUrl = (path: string, w: 92 | 154 | 185 | 342 | 500 | 780) =>
-//   `${IMAGINARY_URL}/resize?width=${w}&height=${w * 1.5}&url=https://image.tmdb.org/t/p/w${w}${path}`
-
 const imageUrl = (path: string, w: 92 | 154 | 185 | 342 | 500 | 780) =>
-  `https://cineshare.vercel.app/api/image?url=https://image.tmdb.org/t/p/w${w}${path}`
+  `${IMAGINARY_URL}/resize?width=${w}&height=${w * 1.5}&url=https://image.tmdb.org/t/p/w${w}${path}`
 
 const isMovie = (m: { media_type: unknown }): m is MovieWithMediaType => m.media_type === "movie"
 
