@@ -46,6 +46,7 @@ bot.on('inline_query', async (ctx) => {
 		// 	await getQueryResults(ctx.inlineQuery.query.trim()),
 		// 	R.map(toPhotoResult)
 		// );
+
 		const results = [
 			toPhotoResult({
 				id: '1',
@@ -53,12 +54,12 @@ bot.on('inline_query', async (ctx) => {
 				title: 'Spider-Man: Across the Spider-Verse',
 				year: '2022',
 				poster: {
-					url: 'https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
+					url: '/_vercel/image?url=https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&w=500&q=75',
 					width: 500,
 					height: 750
 				},
 				thumb: {
-					url: 'https://image.tmdb.org/t/p/w154/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
+					url: '/_vercel/image?url=https://image.tmdb.org/t/p/w154/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&w=154&q=75',
 					width: 154,
 					height: 231
 				}
