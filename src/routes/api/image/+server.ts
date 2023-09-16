@@ -6,7 +6,5 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	if (!imageUrl) throw error(400, 'No image url provided');
 
-	const image = await fetch(imageUrl).then((res) => res.arrayBuffer());
-
-	return new Response(image);
+	return new Response(await fetch(imageUrl).then((res) => res.arrayBuffer()));
 };
