@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import * as R from 'remeda';
 import { TMDB } from 'tmdb-ts';
 import type { MovieWithMediaType, TVWithMediaType } from 'tmdb-ts';
@@ -45,7 +46,7 @@ const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): QueryResult =>
 	year: (isMovie(m) ? m.release_date : m.first_air_date)?.slice(0, 4) ?? null
 });
 
-const api = new TMDB(import.meta.env.TMDB_TOKEN ?? '');
+const api = new TMDB(env.TMDB_TOKEN ?? '');
 
 export const getQueryResults = async (query: string): Promise<QueryResult[]> =>
 	R.pipe(

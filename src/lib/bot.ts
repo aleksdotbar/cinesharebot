@@ -1,8 +1,9 @@
 import * as R from 'remeda';
 import { Bot, InlineQueryResultBuilder } from 'grammy';
 import { getQueryResults, type QueryResult } from './api';
+import { env } from '$env/dynamic/private';
 
-export const bot = new Bot(import.meta.env.BOT_TOKEN ?? '', {
+export const bot = new Bot(env.BOT_TOKEN ?? '', {
 	client: { canUseWebhookReply: () => true }
 });
 
