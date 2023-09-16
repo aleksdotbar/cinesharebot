@@ -2,7 +2,11 @@ import * as R from "remeda"
 import { Bot, InlineQueryResultBuilder } from "grammy"
 import { getQueryResults, QueryResult } from "./api"
 
-export const bot = new Bot(Bun.env.BOT_TOKEN ?? "")
+export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", {
+  client: {
+    canUseWebhookReply: () => true,
+  },
+})
 
 const description = (username: string) => `
 This bot can help you find and share movies and tv shows\\.
