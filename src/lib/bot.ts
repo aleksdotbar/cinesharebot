@@ -54,12 +54,12 @@ bot.on('inline_query', async (ctx) => {
 				title: 'Spider-Man: Across the Spider-Verse',
 				year: '2022',
 				poster: {
-					url: '/_vercel/image?url=https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&w=500&q=75',
+					url: `https://${env.VERCEL_URL}/api/sharp?url=https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&width=500`,
 					width: 500,
 					height: 750
 				},
 				thumb: {
-					url: '/_vercel/image?url=https://image.tmdb.org/t/p/w154/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&w=154&q=75',
+					url: `https://${env.VERCEL_URL}/api/sharp?url=https://image.tmdb.org/t/p/w154/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg&width=154`,
 					width: 154,
 					height: 231
 				}
