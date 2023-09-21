@@ -10,14 +10,8 @@ export type QueryResult = {
   year: string | null
 }
 
-const IMAGINARY_URL = Bun.env.IMAGINARY_URL
-
-if (!IMAGINARY_URL) {
-  throw new Error("IMAGINARY_URL is not set")
-}
-
 const imageUrl = (path: string, w: 92 | 154 | 185 | 342 | 500 | 780) =>
-  `${IMAGINARY_URL}/resize?width=${w}&height=${w * 1.5}&url=https://image.tmdb.org/t/p/w${w}${path}`
+  `https://image.tmdb.org/t/p/w${w}${path}`
 
 const isMovie = (m: { media_type: unknown }): m is MovieWithMediaType => m.media_type === "movie"
 
@@ -26,13 +20,24 @@ const isTV = (m: { media_type: unknown }): m is TVWithMediaType => m.media_type 
 const isMovieOrTV = (m: { media_type: unknown }): m is MovieWithMediaType | TVWithMediaType =>
   isMovie(m) || isTV(m)
 
+const POSTER_WIDTH = 780
+const THUMB_WIDTH = 154
+
 const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): QueryResult => ({
   id: String(m.id),
   type: m.media_type,
-  poster: { url: imageUrl(m.poster_path, 500), width: 500, height: 750 },
-  thumb: { url: imageUrl(m.poster_path, 154), width: 154, height: 231 },
   title: isMovie(m) ? m.title : m.name,
   year: (isMovie(m) ? m.release_date : m.first_air_date)?.slice(0, 4) ?? null,
+  poster: {
+    url: imageUrl(m.poster_path, POSTER_WIDTH),
+    width: POSTER_WIDTH,
+    height: POSTER_WIDTH * 1.5,
+  },
+  thumb: {
+    url: imageUrl(m.poster_path, THUMB_WIDTH),
+    width: POSTER_WIDTH,
+    height: POSTER_WIDTH * 1.5,
+  },
 })
 
 const api = new TMDB(Bun.env.TMDB_TOKEN ?? "")

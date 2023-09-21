@@ -2,11 +2,11 @@ import * as R from "remeda"
 import { Bot, InlineQueryResultBuilder } from "grammy"
 import { getQueryResults, QueryResult } from "./api"
 
-export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", {
-  client: {
-    canUseWebhookReply: () => true,
-  },
-})
+const IMAGE_PROXY_URL = Bun.env.IMAGE_PROXY_URL
+
+if (!IMAGE_PROXY_URL) throw new Error("IMAGE_PROXY_URL is not set")
+
+export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", { client: { canUseWebhookReply: () => true } })
 
 const description = (username: string) => `
 This bot can help you find and share movies and tv shows\\.
@@ -28,12 +28,14 @@ bot.on("message", (ctx) => {
   ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" })
 })
 
+const imageUrl = (url: string) => `${IMAGE_PROXY_URL}/proxy?url=${url}`
+
 const toPhotoResult = (m: QueryResult) => {
   const emoji = m.type === "movie" ? "📽" : "📺"
   const title = `${m.title}${m.year ? ` (${m.year})` : ""}`
 
-  return InlineQueryResultBuilder.photo(m.id, m.poster.url, {
-    thumbnail_url: m.thumb.url,
+  return InlineQueryResultBuilder.photo(m.id, imageUrl(m.poster.url), {
+    thumbnail_url: imageUrl(m.thumb.url),
     photo_width: m.poster.width,
     photo_height: m.poster.height,
     caption: `${emoji} <b>${title}</b>`,
@@ -48,7 +50,7 @@ bot.on("inline_query", async (ctx) => {
       R.map(toPhotoResult)
     )
 
-    ctx.answerInlineQuery(results, { cache_time: 0 })
+    ctx.answerInlineQuery(results)
   } catch (error) {
     console.error(error)
   }
