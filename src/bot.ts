@@ -1,12 +1,12 @@
-import * as R from "remeda"
-import { Bot, InlineQueryResultBuilder } from "grammy"
-import { getQueryResults, QueryResult } from "./api"
+import * as R from "remeda";
+import { Bot, InlineQueryResultBuilder } from "grammy";
+import { getQueryResults, QueryResult } from "./api";
 
-const IMAGE_PROXY_URL = Bun.env.IMAGE_PROXY_URL
+const IMAGE_PROXY_URL = Bun.env.IMAGE_PROXY_URL;
 
-if (!IMAGE_PROXY_URL) throw new Error("IMAGE_PROXY_URL is not set")
+if (!IMAGE_PROXY_URL) throw new Error("IMAGE_PROXY_URL is not set");
 
-export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", { client: { canUseWebhookReply: () => true } })
+export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", { client: { canUseWebhookReply: () => true } });
 
 const description = (username: string) => `
 This bot can help you find and share movies and tv shows\\.
@@ -20,19 +20,19 @@ If you just type \`@${username}\` and a space, you'll see trending results\\.
     
 If you already have some messages from this bot in your chat, you can just tap on bot's username and it will be pasted into the input field\\.
     
-You can try it right here\\.`
+You can try it right here\\.`;
 
 bot.on("message", (ctx) => {
-  if (!ctx.message.text) return
+  if (!ctx.message.text) return;
 
-  ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" })
-})
+  ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" });
+});
 
-const imageUrl = (url: string) => `${IMAGE_PROXY_URL}/proxy?url=${url}`
+const imageUrl = (url: string) => `${IMAGE_PROXY_URL}?url=${url}`;
 
 const toPhotoResult = (m: QueryResult) => {
-  const emoji = m.type === "movie" ? "📽" : "📺"
-  const title = `${m.title}${m.year ? ` (${m.year})` : ""}`
+  const emoji = m.type === "movie" ? "📽" : "📺";
+  const title = `${m.title}${m.year ? ` (${m.year})` : ""}`;
 
   return InlineQueryResultBuilder.photo(m.id, imageUrl(m.poster.url), {
     thumbnail_url: imageUrl(m.thumb.url),
@@ -40,18 +40,18 @@ const toPhotoResult = (m: QueryResult) => {
     photo_height: m.poster.height,
     caption: `${emoji} <b>${title}</b>`,
     parse_mode: "HTML",
-  })
-}
+  });
+};
 
 bot.on("inline_query", async (ctx) => {
   try {
     const results = R.pipe(
       await getQueryResults(ctx.inlineQuery.query.trim()),
       R.map(toPhotoResult)
-    )
+    );
 
-    ctx.answerInlineQuery(results)
+    ctx.answerInlineQuery(results);
   } catch (error) {
-    console.error(error)
+    console.error(error);
   }
-})
+});
