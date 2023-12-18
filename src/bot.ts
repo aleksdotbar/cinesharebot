@@ -23,12 +23,6 @@ if (!REDIS_URL) throw new Error("REDIS_URL is not set");
 
 const redis = new Redis(REDIS_URL);
 
-bot.on("message", (ctx) => {
-  if (!ctx.message.text) return;
-
-  ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" });
-});
-
 type UserConfig = {
   caption: boolean;
 };
@@ -82,4 +76,10 @@ bot.on("chosen_inline_result", async (ctx) => {
   } catch (error) {
     console.error(error);
   }
+});
+
+bot.on("message", (ctx) => {
+  if (!ctx.message.text) return;
+
+  ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" });
 });
