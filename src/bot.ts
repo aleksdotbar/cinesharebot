@@ -71,8 +71,11 @@ bot.on("chosen_inline_result", async (ctx) => {
       ? `Someone searched for \`${query}\` and chose a result with id \`${result_id}\``
       : `Someone chose a trending result with id \`${result_id}\``;
 
+    console.log(message);
+
     await bot.api.sendMessage(ANALYTICS_CHAT_ID, `Hey, yo\\!\n\n${message}`, {
       parse_mode: "MarkdownV2",
+      disable_notification: true,
     });
   } catch (error) {
     console.error(error);
