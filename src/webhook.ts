@@ -11,6 +11,8 @@ Bun.serve({
       return new Response();
     }
 
+    console.log(url);
+
     try {
       return await handleUpdate(req);
     } catch (err) {
