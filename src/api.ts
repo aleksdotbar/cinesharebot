@@ -1,29 +1,44 @@
-import * as R from "remeda"
-import { TMDB, MovieWithMediaType, TVWithMediaType } from "tmdb-ts"
+import { TMDB, MovieWithMediaType, TVWithMediaType, MultiSearchResult } from "tmdb-ts";
 
-export type QueryResult = {
-  type: string
-  id: string
-  title: string
-  poster: { url: string; width: number; height: number }
-  thumb: { url: string; width: number; height: number }
-  year: string | null
-}
+const api = new TMDB(Bun.env.TMDB_TOKEN ?? "");
+
+export const POSTER_WIDTH = 780;
+
+export const THUMB_WIDTH = 154;
+
+export const getSearchResults = async (query: string): Promise<Array<MediaResult>> => {
+  const { results } = await api.search.multi({ query });
+
+  return parseResults(results);
+};
+
+export const getTreandingResults = async (): Promise<Array<MediaResult>> => {
+  const { results } = await api.trending.trending("all", "week");
+
+  return parseResults(results);
+};
+
+export const isMovie = (m: { media_type: unknown }): m is MovieWithMediaType =>
+  m.media_type === "movie";
+
+export const isTV = (m: { media_type: unknown }): m is TVWithMediaType => m.media_type === "tv";
+
+export type MediaResult = {
+  type: string;
+  id: string;
+  title: string;
+  poster: { url: string; width: number; height: number };
+  thumb: { url: string; width: number; height: number };
+  year: string | null;
+};
 
 const imageUrl = (path: string, w: 92 | 154 | 185 | 342 | 500 | 780) =>
-  `https://image.tmdb.org/t/p/w${w}${path}`
-
-const isMovie = (m: { media_type: unknown }): m is MovieWithMediaType => m.media_type === "movie"
-
-const isTV = (m: { media_type: unknown }): m is TVWithMediaType => m.media_type === "tv"
+  `https://image.tmdb.org/t/p/w${w}${path}`;
 
 const isMovieOrTV = (m: { media_type: unknown }): m is MovieWithMediaType | TVWithMediaType =>
-  isMovie(m) || isTV(m)
+  isMovie(m) || isTV(m);
 
-const POSTER_WIDTH = 780
-const THUMB_WIDTH = 154
-
-const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): QueryResult => ({
+const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): MediaResult => ({
   id: String(m.id),
   type: m.media_type,
   title: isMovie(m) ? m.title : m.name,
@@ -38,15 +53,10 @@ const parseMovieOrTV = (m: MovieWithMediaType | TVWithMediaType): QueryResult =>
     width: POSTER_WIDTH,
     height: POSTER_WIDTH * 1.5,
   },
-})
+});
 
-const api = new TMDB(Bun.env.TMDB_TOKEN ?? "")
-
-export const getQueryResults = async (query: string): Promise<QueryResult[]> =>
-  R.pipe(
-    query ? await api.search.multi({ query }) : await api.trending.trending("all", "week"),
-    R.prop("results"),
-    R.filter(isMovieOrTV),
-    R.filter((m) => !!m.poster_path),
-    R.map(parseMovieOrTV)
-  )
+const parseResults = (results: Array<MultiSearchResult>): Array<MediaResult> =>
+  results
+    .filter(isMovieOrTV)
+    .filter((m) => !!m.poster_path)
+    .map(parseMovieOrTV);
