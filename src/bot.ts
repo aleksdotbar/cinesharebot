@@ -7,6 +7,10 @@ const BOT_TOKEN = Bun.env.BOT_TOKEN;
 
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN is not set");
 
+const ANALYTICS_CHAT_ID = Bun.env.ANALYTICS_CHAT_ID;
+
+if (!ANALYTICS_CHAT_ID) throw new Error("ANALYTICS_CHAT_ID is not set");
+
 export const bot = new Bot(BOT_TOKEN, { client: { canUseWebhookReply: () => true } });
 
 const REDIS_URL = Bun.env.REDIS_URL;
@@ -54,6 +58,22 @@ bot.on("inline_query", async (ctx) => {
     const settings = await redis.get(`settings:${ctx.from.id}`).then(parseUserConfig);
 
     await ctx.answerInlineQuery(results.map(toPhotoResult(settings)), { cache_time: 0 });
+  } catch (error) {
+    console.error(error);
+  }
+});
+
+bot.on("chosen_inline_result", async (ctx) => {
+  try {
+    const { query, result_id } = ctx.chosenInlineResult;
+
+    const message = query
+      ? `Someone searched for \`${query}\` and chose a result with id \`${result_id}\``
+      : `Someone chose a trending result with id \`${result_id}\``;
+
+    await bot.api.sendMessage(ANALYTICS_CHAT_ID, `Hey, yo\\!\n\n${message}`, {
+      parse_mode: "MarkdownV2",
+    });
   } catch (error) {
     console.error(error);
   }
