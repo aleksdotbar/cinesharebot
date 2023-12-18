@@ -1,8 +1,19 @@
 import { Bot, InlineQueryResultBuilder } from "grammy";
 import { getSearchResults, getTreandingResults, MediaResult } from "./api";
 import { description, imageUrl } from "./utils";
+import Redis from "ioredis";
 
-export const bot = new Bot(Bun.env.BOT_TOKEN ?? "", { client: { canUseWebhookReply: () => true } });
+const BOT_TOKEN = Bun.env.BOT_TOKEN;
+
+if (!BOT_TOKEN) throw new Error("BOT_TOKEN is not set");
+
+export const bot = new Bot(BOT_TOKEN, { client: { canUseWebhookReply: () => true } });
+
+const REDIS_URL = Bun.env.REDIS_URL;
+
+if (!REDIS_URL) throw new Error("REDIS_URL is not set");
+
+const redis = new Redis(REDIS_URL);
 
 bot.on("message", (ctx) => {
   if (!ctx.message.text) return;
@@ -10,15 +21,26 @@ bot.on("message", (ctx) => {
   ctx.reply(description(ctx.me.username), { parse_mode: "MarkdownV2" });
 });
 
-const toPhotoResult = (m: MediaResult) => {
-  const emoji = m.type === "movie" ? "📽" : "📺";
-  const title = `${m.title}${m.year ? ` (${m.year})` : ""}`;
+type UserConfig = {
+  caption: boolean;
+};
 
-  return InlineQueryResultBuilder.photo(m.id, imageUrl(m.poster.url), {
-    thumbnail_url: imageUrl(m.thumb.url),
-    photo_width: m.poster.width,
-    photo_height: m.poster.height,
-    caption: `${emoji} <b>${title}</b>`,
+const defaultConfig: UserConfig = {
+  caption: true,
+};
+
+const parseUserConfig = (config: string | null) =>
+  config ? (JSON.parse(config) as UserConfig) : defaultConfig;
+
+const toPhotoResult = (cfg: UserConfig) => (res: MediaResult) => {
+  const emoji = res.type === "movie" ? "📽" : "📺";
+  const title = `${res.title}${res.year ? ` (${res.year})` : ""}`;
+
+  return InlineQueryResultBuilder.photo(res.id, imageUrl(res.poster.url), {
+    thumbnail_url: imageUrl(res.thumb.url),
+    photo_width: res.poster.width,
+    photo_height: res.poster.height,
+    caption: cfg.caption ? `${emoji} <b>${title}</b>` : undefined,
     parse_mode: "HTML",
   });
 };
@@ -29,7 +51,9 @@ bot.on("inline_query", async (ctx) => {
 
     const results = query ? await getSearchResults(query) : await getTreandingResults();
 
-    await ctx.answerInlineQuery(results.map(toPhotoResult), { cache_time: 0 });
+    const settings = await redis.get(`settings:${ctx.from.id}`).then(parseUserConfig);
+
+    await ctx.answerInlineQuery(results.map(toPhotoResult(settings)), { cache_time: 0 });
   } catch (error) {
     console.error(error);
   }
