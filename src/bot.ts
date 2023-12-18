@@ -53,6 +53,8 @@ bot.on("inline_query", async (ctx) => {
   try {
     const query = ctx.inlineQuery.query.trim();
 
+    console.log(query ? `Someone searched for \`${query}\`` : "Someone requested trending results");
+
     const results = query ? await getSearchResults(query) : await getTreandingResults();
 
     const settings = await redis.get(`settings:${ctx.from.id}`).then(parseUserConfig);
