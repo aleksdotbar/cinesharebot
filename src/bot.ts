@@ -11,7 +11,11 @@ const ANALYTICS_CHAT_ID = Bun.env.ANALYTICS_CHAT_ID;
 
 if (!ANALYTICS_CHAT_ID) throw new Error("ANALYTICS_CHAT_ID is not set");
 
-export const bot = new Bot(BOT_TOKEN, { client: { canUseWebhookReply: () => true } });
+export const bot = new Bot(BOT_TOKEN, {
+  client: {
+    canUseWebhookReply: (method) => method === "answerInlineQuery",
+  },
+});
 
 const REDIS_URL = Bun.env.REDIS_URL;
 
