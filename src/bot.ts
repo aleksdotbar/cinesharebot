@@ -63,11 +63,13 @@ bot.on("inline_query", async (ctx) => {
 
 bot.on("chosen_inline_result", async (ctx) => {
   try {
-    const { query, result_id } = ctx.chosenInlineResult;
+    const { query, result_id, from } = ctx.chosenInlineResult;
+
+    const username = from.username ? `@${from.username}` : "Someone";
 
     const message = query
-      ? `Someone searched for \`${query}\` and chose a result with id \`${result_id}\``
-      : `Someone chose a trending result with id \`${result_id}\``;
+      ? `${username} searched for \`${query}\` and chose a result with id \`${result_id}\``
+      : `${username} chose a trending result with id \`${result_id}\``;
 
     await bot.api.sendMessage(ANALYTICS_CHAT_ID, `Hey, yo\\!\n\n${message}`, {
       parse_mode: "MarkdownV2",
