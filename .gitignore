@@ -1,0 +1,13 @@
+# Rust
+/target/
+
+# Local environment files
+/.env
+/.env.*
+!/.env.example
+
+# Logs
+*.log
+
+# OS/editor noise
+.DS_Store
