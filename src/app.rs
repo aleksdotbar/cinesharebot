@@ -516,27 +516,57 @@ fn details_load_failed_message(locale: Locale) -> &'static str {
 fn format_genre_label(genre: &str, locale: Locale) -> String {
     match locale {
         Locale::En => escape_html(genre),
-        Locale::Ru => escape_html(&title_case_words(genre)),
+        Locale::Ru => escape_html(&title_case_russian_words(genre)),
     }
 }
 
-fn title_case_words(value: &str) -> String {
+fn title_case_russian_words(value: &str) -> String {
     let mut result = String::with_capacity(value.len());
-    let mut capitalize_next = true;
+    let mut token = String::new();
 
     for character in value.chars() {
-        if capitalize_next {
-            for uppercase in character.to_uppercase() {
-                result.push(uppercase);
-            }
-        } else {
-            result.push(character);
+        if character.is_alphabetic() {
+            token.push(character);
+            continue;
         }
 
-        capitalize_next = character.is_whitespace() || character == '-';
+        if !token.is_empty() {
+            result.push_str(&format_russian_word(&token));
+            token.clear();
+        }
+
+        result.push(character);
+    }
+
+    if !token.is_empty() {
+        result.push_str(&format_russian_word(&token));
     }
 
     result
+}
+
+fn format_russian_word(word: &str) -> String {
+    if is_russian_genre_stopword(word) {
+        return word.to_lowercase();
+    }
+
+    let mut characters = word.chars();
+    let Some(first_character) = characters.next() else {
+        return String::new();
+    };
+
+    let mut result = String::with_capacity(word.len());
+    result.extend(first_character.to_uppercase());
+    result.push_str(characters.as_str());
+    result
+}
+
+fn is_russian_genre_stopword(word: &str) -> bool {
+    matches!(
+        word,
+        "и" | "в" | "во" | "на" | "по" | "о" | "об" | "от" | "до" | "из" | "за" | "с"
+            | "со" | "у" | "к" | "ко" | "под" | "при"
+    )
 }
 
 fn truncate_chars(value: &str, max_chars: usize) -> String {
@@ -777,6 +807,26 @@ mod tests {
         );
 
         assert!(caption.contains("<i>Фильм</i> • <i>Научная Фантастика, Приключение</i>"));
+    }
+
+    #[test]
+    fn russian_caption_keeps_conjunctions_lowercase() {
+        let caption = build_caption(
+            Locale::Ru,
+            MediaType::Tv,
+            "Локи",
+            "Loki",
+            Some("2021"),
+            Some(&[
+                "НФ и фэнтези".to_string(),
+                "боевик и приключения".to_string(),
+                "семейный".to_string(),
+            ]),
+        );
+
+        assert!(caption.contains(
+            "<i>Сериал</i> • <i>НФ и Фэнтези, Боевик и Приключения, Семейный</i>"
+        ));
     }
 
     #[tokio::test]
