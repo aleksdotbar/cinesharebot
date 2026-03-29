@@ -29,6 +29,20 @@ pub struct Message {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 pub struct Chat {
     pub id: i64,
+    #[serde(rename = "type")]
+    pub kind: ChatKind,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatKind {
+    #[default]
+    Private,
+    Group,
+    Supergroup,
+    Channel,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -75,6 +89,8 @@ pub struct SendMessageRequest {
 pub struct AnswerInlineQueryRequest {
     pub inline_query_id: String,
     pub results: Vec<InlineQueryResultArticle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_personal: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<String>,
 }
@@ -210,7 +226,7 @@ mod tests {
         let message_update: Update = serde_json::from_value(json!({
             "update_id": 1,
             "message": {
-                "chat": { "id": 123 },
+                "chat": { "id": 123, "type": "private" },
                 "from": { "id": 10, "language_code": "ru-RU" }
             }
         }))
@@ -262,10 +278,12 @@ mod tests {
                     parse_mode: Some(ParseMode::Html),
                 },
             )],
+            is_personal: Some(true),
             next_offset: Some("2".to_string()),
         })
         .unwrap();
         assert_eq!(answer["inline_query_id"], "iq1");
+        assert_eq!(answer["is_personal"], true);
 
         let edit_text = serde_json::to_value(EditMessageTextRequest {
             inline_message_id: "msg-1".to_string(),

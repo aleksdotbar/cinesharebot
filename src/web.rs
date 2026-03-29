@@ -266,6 +266,7 @@ mod tests {
 
         assert_eq!(body["method"], "answerInlineQuery");
         assert_eq!(body["inline_query_id"], "iq1");
+        assert_eq!(body["is_personal"], true);
         assert_eq!(body["results"][0]["id"], "movie:42");
     }
 

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::{StatusCode, header};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -9,6 +11,9 @@ use super::models::{
     TmdbTvDetails,
 };
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Clone)]
 pub struct TmdbClient {
     http: reqwest::Client,
@@ -18,7 +23,11 @@ pub struct TmdbClient {
 impl TmdbClient {
     pub fn new(token: String) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .expect("tmdb http client configuration must be valid"),
             token,
         }
     }

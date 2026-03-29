@@ -5,7 +5,7 @@ mod reply;
 pub use client::{SetWebhookRequest, TelegramClient, TelegramError};
 pub use models::{
     AnswerInlineQueryRequest, ChosenInlineResult, EditMessageMediaRequest,
-    EditMessageTextRequest, InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
+    EditMessageTextRequest, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
     InlineQueryResultArticle, InputMediaPhoto, InputTextMessageContent, Message, ParseMode,
     SendMessageRequest, Update, User,
 };

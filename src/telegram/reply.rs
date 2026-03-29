@@ -57,6 +57,7 @@ mod tests {
         let answer = WebhookReply::AnswerInlineQuery(AnswerInlineQueryRequest {
             inline_query_id: "iq1".to_string(),
             results: Vec::new(),
+            is_personal: Some(true),
             next_offset: None,
         });
         assert_eq!(answer.to_json()["method"], "answerInlineQuery");

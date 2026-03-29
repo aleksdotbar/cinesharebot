@@ -7,7 +7,7 @@ use crate::{
     locale::Locale,
     telegram::{
         AnswerInlineQueryRequest, ChosenInlineResult, EditMessageMediaRequest,
-        EditMessageTextRequest, InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
+        ChatKind, EditMessageTextRequest, InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
         InlineQueryResultArticle, InputMediaPhoto, InputTextMessageContent, Message, ParseMode,
         SendMessageRequest, TelegramError, Update, User, WebhookReply,
     },
@@ -95,6 +95,15 @@ impl AppService {
             return;
         }
 
+        if message.chat.kind != ChatKind::Private {
+            info!(
+                chat_id = message.chat.id,
+                chat_kind = ?message.chat.kind,
+                "ignoring non-private message update"
+            );
+            return;
+        }
+
         info!(chat_id = message.chat.id, "handling message update");
         let locale = locale_for_message_help(message.from.as_ref());
 
@@ -168,6 +177,7 @@ impl AppService {
         WebhookReply::AnswerInlineQuery(AnswerInlineQueryRequest {
             inline_query_id: inline_query.id,
             results,
+            is_personal: Some(true),
             next_offset: search_results.next_page.map(|page| page.to_string()),
         })
     }
@@ -685,7 +695,7 @@ mod tests {
         service
             .handle_update(
                 serde_json::from_str::<Update>(
-                    r#"{"update_id":1,"message":{"chat":{"id":123},"from":{"id":1,"language_code":"en"}}}"#,
+                    r#"{"update_id":1,"message":{"chat":{"id":123,"type":"private"},"from":{"id":1,"language_code":"en"}}}"#,
                 )
                 .unwrap(),
             )
@@ -712,9 +722,36 @@ mod tests {
 
         service
             .handle_update(serde_json::from_str::<Update>(
-                r#"{"update_id":1,"message":{"chat":{"id":123},"via_bot":{"id":777,"username":"cinebot"}}}"#,
+                r#"{"update_id":1,"message":{"chat":{"id":123,"type":"private"},"via_bot":{"id":777,"username":"cinebot"}}}"#,
             )
             .unwrap())
+            .await;
+
+        let sent_messages = telegram.sent_messages.lock().unwrap();
+        assert!(sent_messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ignores_non_private_messages() {
+        let telegram = Arc::new(MockTelegram::default());
+        let tmdb = Arc::new(MockTmdb {
+            search_results: SearchResults {
+                results: vec![sample_result()],
+                next_page: None,
+            },
+            details: sample_details(),
+            search_locales: Mutex::new(Vec::new()),
+            details_locales: Mutex::new(Vec::new()),
+        });
+        let service = AppService::new(777, "cinebot".to_string(), -100, telegram.clone(), tmdb);
+
+        service
+            .handle_update(
+                serde_json::from_str::<Update>(
+                    r#"{"update_id":1,"message":{"chat":{"id":-200,"type":"group"},"from":{"id":1,"language_code":"en"}}}"#,
+                )
+                .unwrap(),
+            )
             .await;
 
         let sent_messages = telegram.sent_messages.lock().unwrap();

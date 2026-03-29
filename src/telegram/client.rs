@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -5,6 +7,9 @@ use thiserror::Error;
 use crate::app::TelegramApi;
 
 use super::{SendMessageRequest, User};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SetWebhookRequest {
@@ -26,7 +31,11 @@ pub struct TelegramClient {
 impl TelegramClient {
     pub fn new(token: String) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .expect("telegram http client configuration must be valid"),
             token,
         }
     }
