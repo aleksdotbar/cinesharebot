@@ -402,7 +402,7 @@ fn build_caption(
 }
 
 fn build_article_title(result: &NormalizedSearchResult, locale: Locale) -> String {
-    let mut title = escape_html(&result.title);
+    let mut title = result.title.clone();
 
     if let Some(year) = &result.year {
         title.push_str(" | ");
@@ -587,7 +587,8 @@ mod tests {
     use async_trait::async_trait;
 
     use super::{
-        AppService, TelegramApi, TmdbApi, build_caption, build_description_message,
+        AppService, TelegramApi, TmdbApi, build_article_title, build_caption,
+        build_description_message,
         details_load_failed_message, locale_for_chosen_result, locale_for_inline_query,
         locale_for_message_help,
     };
@@ -827,6 +828,25 @@ mod tests {
         assert!(caption.contains(
             "<i>Сериал</i> • <i>НФ и Фэнтези, Боевик и Приключения, Семейный</i>"
         ));
+    }
+
+    #[test]
+    fn article_title_does_not_html_escape_plain_text() {
+        let title = build_article_title(
+            &NormalizedSearchResult {
+                media_type: MediaType::Movie,
+                id: 1,
+                title: "Mike & Nick & Nick & Alice".to_string(),
+                original_title: "Mike & Nick & Nick & Alice".to_string(),
+                overview: String::new(),
+                poster_path: None,
+                year: Some("2026".to_string()),
+                popularity: 0.0,
+            },
+            Locale::En,
+        );
+
+        assert_eq!(title, "Mike & Nick & Nick & Alice | 2026 | Movie");
     }
 
     #[tokio::test]
