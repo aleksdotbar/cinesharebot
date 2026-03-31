@@ -1,15 +1,16 @@
-use std::time::Duration;
-
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
-use crate::app::TelegramApi;
+use crate::{
+    app::TelegramApi,
+    http_client::{
+        AttemptResult, RetryPolicy, build_client, execute_with_retry, retry_after_from_headers,
+        retryable, should_retry_request_error, should_retry_status,
+    },
+};
 
 use super::{SendMessageRequest, User};
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SetWebhookRequest {
@@ -31,11 +32,7 @@ pub struct TelegramClient {
 impl TelegramClient {
     pub fn new(token: String) -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(REQUEST_TIMEOUT)
-                .build()
-                .expect("telegram http client configuration must be valid"),
+            http: build_client(),
             token,
         }
     }
@@ -62,35 +59,92 @@ impl TelegramClient {
         TResponse: DeserializeOwned,
     {
         let url = self.build_method_url(method);
-        let request = self.http.post(url);
-        let request = if let Some(payload) = payload {
-            request.json(payload)
-        } else {
-            request
-        };
-        let response = request.send().await?;
-        let status = response.status();
-        let body = response.text().await?;
-        let api_response: TelegramApiResponse<TResponse> =
-            serde_json::from_str(&body).map_err(|source| TelegramError::InvalidResponse {
-                status,
-                body,
-                source,
-            })?;
+        execute_with_retry(method, RetryPolicy::default(), |_| {
+            let url = url.clone();
+            let request = self.http.post(&url);
+            let request = if let Some(payload) = payload {
+                request.json(payload)
+            } else {
+                request
+            };
 
-        if api_response.ok {
-            api_response
-                .result
-                .ok_or(TelegramError::MissingResult { status })
-        } else {
-            Err(TelegramError::Api {
-                status,
-                description: api_response
-                    .description
-                    .unwrap_or_else(|| "unknown telegram api error".to_string()),
-                error_code: api_response.error_code,
-            })
-        }
+            async move {
+                let response = match request.send().await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        return if should_retry_request_error(&error) {
+                            retryable(
+                                error.into(),
+                                "transport failure",
+                                None,
+                            )
+                        } else {
+                            AttemptResult::Final(error.into())
+                        };
+                    }
+                };
+
+                let status = response.status();
+                let headers = response.headers().clone();
+                let body = match response.text().await {
+                    Ok(body) => body,
+                    Err(error) => {
+                        return if should_retry_request_error(&error) {
+                            retryable(error.into(), "response body read failed", None)
+                        } else {
+                            AttemptResult::Final(error.into())
+                        };
+                    }
+                };
+
+                let api_response = match serde_json::from_str::<TelegramApiResponse<TResponse>>(&body) {
+                    Ok(api_response) => api_response,
+                    Err(source) => {
+                        return if should_retry_status(status) {
+                            retryable(
+                                TelegramError::InvalidResponse { status, body, source },
+                                "retryable non-json response",
+                                retry_after_from_headers(&headers),
+                            )
+                        } else {
+                            AttemptResult::Final(TelegramError::InvalidResponse { status, body, source })
+                        };
+                    }
+                };
+
+                if api_response.ok {
+                    return match api_response.result {
+                        Some(result) => AttemptResult::Success(result),
+                        None => AttemptResult::Final(TelegramError::MissingResult { status }),
+                    };
+                }
+
+                let should_retry = should_retry_telegram_api_response(status, &api_response);
+                let error = TelegramError::Api {
+                    status,
+                    description: api_response
+                        .description
+                        .unwrap_or_else(|| "unknown telegram api error".to_string()),
+                    error_code: api_response.error_code,
+                };
+
+                if should_retry {
+                    return retryable(
+                        error,
+                        "retryable api response",
+                        api_response
+                            .parameters
+                            .as_ref()
+                            .and_then(|parameters| parameters.retry_after)
+                            .map(std::time::Duration::from_secs)
+                            .or_else(|| retry_after_from_headers(&headers)),
+                    );
+                }
+
+                AttemptResult::Final(error)
+            }
+        })
+        .await
     }
 }
 
@@ -109,6 +163,12 @@ struct TelegramApiResponse<T> {
     result: Option<T>,
     description: Option<String>,
     error_code: Option<u16>,
+    parameters: Option<TelegramResponseParameters>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramResponseParameters {
+    retry_after: Option<u64>,
 }
 
 #[derive(Debug, Error)]
@@ -131,11 +191,18 @@ pub enum TelegramError {
     },
 }
 
+fn should_retry_telegram_api_response<T>(
+    status: StatusCode,
+    api_response: &TelegramApiResponse<T>,
+) -> bool {
+    should_retry_status(status) || api_response.error_code == Some(StatusCode::TOO_MANY_REQUESTS.as_u16())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{SetWebhookRequest, TelegramClient};
+    use super::{SetWebhookRequest, TelegramApiResponse, TelegramClient, should_retry_telegram_api_response};
     use crate::telegram::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, SendMessageRequest};
 
     #[test]
@@ -169,5 +236,18 @@ mod tests {
         })
         .unwrap();
         assert_eq!(set_webhook["url"], json!("https://example.com/bot/123:abc"));
+    }
+
+    #[test]
+    fn telegram_api_retry_policy_respects_error_code() {
+        let response = TelegramApiResponse::<serde_json::Value> {
+            ok: false,
+            result: None,
+            description: None,
+            error_code: Some(reqwest::StatusCode::TOO_MANY_REQUESTS.as_u16()),
+            parameters: None,
+        };
+
+        assert!(should_retry_telegram_api_response(reqwest::StatusCode::OK, &response));
     }
 }

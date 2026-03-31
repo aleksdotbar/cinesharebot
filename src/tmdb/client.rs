@@ -1,18 +1,20 @@
-use std::time::Duration;
-
 use reqwest::{StatusCode, header};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
-use crate::{app::TmdbApi, locale::Locale};
+use crate::{
+    app::TmdbApi,
+    http_client::{
+        AttemptResult, RetryPolicy, build_client, execute_with_retry, retry_after_from_headers,
+        retryable, should_retry_request_error, should_retry_status,
+    },
+    locale::Locale,
+};
 
 use super::models::{
     MediaType, NormalizedDetails, SearchResults, TmdbListItem, TmdbMovieDetails, TmdbPaged,
     TmdbTvDetails,
 };
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct TmdbClient {
@@ -23,11 +25,7 @@ pub struct TmdbClient {
 impl TmdbClient {
     pub fn new(token: String) -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(REQUEST_TIMEOUT)
-                .build()
-                .expect("tmdb http client configuration must be valid"),
+            http: build_client(),
             token,
         }
     }
@@ -82,29 +80,64 @@ impl TmdbClient {
         T: DeserializeOwned,
     {
         let url = format!("https://api.themoviedb.org{path}");
-        let request = self
-            .http
-            .get(url)
-            .header(header::AUTHORIZATION, format!("Bearer {}", self.token))
-            .query(
-                &query
-                    .iter()
-                    .map(|(key, value)| (*key, value.as_str()))
-                    .collect::<Vec<_>>(),
-            );
-        let response = request.send().await?;
-        let status = response.status();
-        let body = response.text().await?;
+        let query_pairs = query
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
+            .collect::<Vec<_>>();
 
-        if !status.is_success() {
-            return Err(parse_tmdb_error(status, body));
-        }
+        execute_with_retry(path, RetryPolicy::default(), |_| {
+            let url = url.clone();
+            let request = self
+                .http
+                .get(&url)
+                .header(header::AUTHORIZATION, format!("Bearer {}", self.token))
+                .query(&query_pairs);
 
-        serde_json::from_str(&body).map_err(|source| TmdbError::InvalidResponse {
-            status,
-            body,
-            source,
+            async move {
+                let response = match request.send().await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        return if should_retry_request_error(&error) {
+                            retryable(error.into(), "transport failure", None)
+                        } else {
+                            AttemptResult::Final(error.into())
+                        };
+                    }
+                };
+
+                let status = response.status();
+                let headers = response.headers().clone();
+                let body = match response.text().await {
+                    Ok(body) => body,
+                    Err(error) => {
+                        return if should_retry_request_error(&error) {
+                            retryable(error.into(), "response body read failed", None)
+                        } else {
+                            AttemptResult::Final(error.into())
+                        };
+                    }
+                };
+
+                if !status.is_success() {
+                    let error = parse_tmdb_error(status, body);
+                    return if should_retry_status(status) {
+                        retryable(error, "retryable http status", retry_after_from_headers(&headers))
+                    } else {
+                        AttemptResult::Final(error)
+                    };
+                }
+
+                match serde_json::from_str(&body) {
+                    Ok(parsed) => AttemptResult::Success(parsed),
+                    Err(source) => AttemptResult::Final(TmdbError::InvalidResponse {
+                        status,
+                        body,
+                        source,
+                    }),
+                }
+            }
         })
+        .await
     }
 }
 
@@ -325,4 +358,5 @@ mod tests {
         assert_eq!(page_query(1, Locale::En), vec![("page", "1".to_string())]);
         assert!(locale_query(Locale::En).is_empty());
     }
+
 }
