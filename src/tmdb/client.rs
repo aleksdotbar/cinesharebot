@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use reqwest::{StatusCode, header};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -11,13 +13,14 @@ use crate::{
     locale::Locale,
 };
 
-use super::models::{
+use super::{cache::TmdbCache, models::{
     MediaType, NormalizedDetails, SearchResults, TmdbListItem, TmdbMovieDetails, TmdbPaged,
     TmdbTvDetails,
-};
+}};
 
 #[derive(Clone)]
 pub struct TmdbClient {
+    cache: std::sync::Arc<Mutex<TmdbCache>>,
     http: reqwest::Client,
     token: String,
 }
@@ -25,12 +28,22 @@ pub struct TmdbClient {
 impl TmdbClient {
     pub fn new(token: String) -> Self {
         Self {
+            cache: std::sync::Arc::new(Mutex::new(TmdbCache::new())),
             http: build_client(),
             token,
         }
     }
 
     async fn get_trending_results(&self, page: u32, locale: Locale) -> Result<SearchResults, TmdbError> {
+        if let Some(results) = self
+            .cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .get_trending(page, locale)
+        {
+            return Ok(results);
+        }
+
         let response: TmdbPaged<TmdbListItem> = self
             .get("/3/trending/all/week", page_query(page, locale))
             .await?;
@@ -40,14 +53,21 @@ impl TmdbClient {
             None
         };
 
-        Ok(SearchResults {
+        let results = SearchResults {
             results: response
                 .results
                 .into_iter()
                 .filter_map(|item| item.try_into().ok())
                 .collect(),
             next_page,
-        })
+        };
+
+        self.cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .insert_trending(page, locale, results.clone());
+
+        Ok(results)
     }
 
     async fn get_search_results(
@@ -56,23 +76,42 @@ impl TmdbClient {
         page: u32,
         locale: Locale,
     ) -> Result<SearchResults, TmdbError> {
+        if let Some(results) = self
+            .cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .get_search(query, page, locale)
+        {
+            return Ok(results);
+        }
+
         let first_page: TmdbPaged<TmdbListItem> = self
             .get("/3/search/multi", search_query(query, page, locale))
             .await?;
         let first_results = normalize_list_results(first_page.results);
 
         if !first_results.is_empty() || page >= first_page.total_pages {
-            return Ok(SearchResults {
+            let results = SearchResults {
                 results: first_results,
                 next_page: next_page(page, first_page.total_pages),
-            });
+            };
+            self.cache
+                .lock()
+                .expect("tmdb cache mutex must not be poisoned")
+                .insert_search(query, page, locale, results.clone());
+            return Ok(results);
         }
 
         let second_page: TmdbPaged<TmdbListItem> = self
             .get("/3/search/multi", search_query(query, page + 1, locale))
             .await?;
 
-        Ok(build_topped_up_search_results(first_page.total_pages, second_page))
+        let results = build_topped_up_search_results(first_page.total_pages, second_page);
+        self.cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .insert_search(query, page, locale, results.clone());
+        Ok(results)
     }
 
     async fn get<T>(&self, path: &str, query: Vec<(&str, String)>) -> Result<T, TmdbError>
@@ -185,7 +224,16 @@ impl TmdbApi for TmdbClient {
         id: u64,
         locale: Locale,
     ) -> Result<NormalizedDetails, TmdbError> {
-        match media_type {
+        if let Some(details) = self
+            .cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .get_details(media_type, id, locale)
+        {
+            return Ok(details);
+        }
+
+        let details: NormalizedDetails = match media_type {
             MediaType::Movie => self
                 .get::<TmdbMovieDetails>(&format!("/3/movie/{id}"), locale_query(locale))
                 .await
@@ -194,7 +242,14 @@ impl TmdbApi for TmdbClient {
                 .get::<TmdbTvDetails>(&format!("/3/tv/{id}"), locale_query(locale))
                 .await
                 .map(Into::into),
-        }
+        }?;
+
+        self.cache
+            .lock()
+            .expect("tmdb cache mutex must not be poisoned")
+            .insert_details(media_type, id, locale, details.clone());
+
+        Ok(details)
     }
 }
 
