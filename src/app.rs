@@ -15,6 +15,7 @@ use crate::{
 };
 
 const PARSE_MODE: ParseMode = ParseMode::Html;
+const TELEGRAM_CAPTION_MAX_CHARS: usize = 1024;
 
 #[async_trait]
 pub trait TelegramApi: Send + Sync {
@@ -236,6 +237,7 @@ impl AppService {
             &details.title,
             &details.original_title,
             details.year.as_deref(),
+            Some(&details.overview),
             Some(&details.genres),
         );
 
@@ -363,6 +365,7 @@ fn build_query_result(result: NormalizedSearchResult, locale: Locale) -> InlineQ
                 &result.title,
                 &result.original_title,
                 result.year.as_deref(),
+                Some(&result.overview),
                 None,
             ),
             parse_mode: Some(PARSE_MODE),
@@ -383,28 +386,37 @@ fn build_caption(
     title: &str,
     original_title: &str,
     year: Option<&str>,
+    overview: Option<&str>,
     genres: Option<&[String]>,
 ) -> String {
-    let mut caption = format!("<b>{}</b>", build_result_title(title, year));
+    let title_line = build_result_title_plain(title, year);
+    let media_label = build_media_label(media_type, locale);
+    let genres_line = build_genres_line(locale, genres);
+    let media_line = visible_media_line(media_label, genres_line.as_deref());
+    let overview =
+        truncate_overview_for_caption(&title_line, original_title != title, original_title, overview, &media_line);
+
+    let mut caption = format!("<b>{}</b>", escape_html(&title_line));
 
     if original_title != title {
         caption.push('\n');
         caption.push_str(&escape_html(original_title));
     }
 
+    if let Some(overview) = overview {
+        caption.push_str("\n\n");
+        caption.push_str("<blockquote expandable>");
+        caption.push_str(&escape_html(&overview));
+        caption.push_str("</blockquote>");
+    }
+
     caption.push_str("\n\n<i>");
-    caption.push_str(build_media_label(media_type, locale));
+    caption.push_str(media_label);
     caption.push_str("</i>");
 
-    if let Some(genres) = genres.filter(|genres| !genres.is_empty()) {
+    if let Some(genres_line) = genres_line {
         caption.push_str(" • <i>");
-        caption.push_str(
-            &genres
-                .iter()
-                .map(|genre| format_genre_label(genre, locale))
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
+        caption.push_str(&escape_html(&genres_line));
         caption.push_str("</i>");
     }
 
@@ -425,8 +437,8 @@ fn build_article_title(result: &NormalizedSearchResult, locale: Locale) -> Strin
     title
 }
 
-fn build_result_title(title: &str, year: Option<&str>) -> String {
-    let mut result = escape_html(title);
+fn build_result_title_plain(title: &str, year: Option<&str>) -> String {
+    let mut result = title.to_string();
 
     if let Some(year) = year {
         result.push_str(" (");
@@ -437,6 +449,41 @@ fn build_result_title(title: &str, year: Option<&str>) -> String {
     result
 }
 
+fn build_genres_line(locale: Locale, genres: Option<&[String]>) -> Option<String> {
+    genres.filter(|genres| !genres.is_empty()).map(|genres| {
+        genres
+            .iter()
+            .map(|genre| format_genre_label_plain(genre, locale))
+            .collect::<Vec<_>>()
+            .join(", ")
+    })
+}
+
+fn visible_media_line(media_label: &str, genres_line: Option<&str>) -> String {
+    match genres_line {
+        Some(genres_line) => format!("{media_label} • {genres_line}"),
+        None => media_label.to_string(),
+    }
+}
+
+fn truncate_overview_for_caption(
+    title_line: &str,
+    has_original_title: bool,
+    original_title: &str,
+    overview: Option<&str>,
+    media_line: &str,
+) -> Option<String> {
+    let overview = overview.map(str::trim).filter(|overview| !overview.is_empty())?;
+
+    let mut reserved = title_line.chars().count() + 2 + media_line.chars().count();
+    if has_original_title {
+        reserved += 1 + original_title.chars().count();
+    }
+
+    let available = TELEGRAM_CAPTION_MAX_CHARS.saturating_sub(reserved + 2);
+    truncate_chars_with_ellipsis(overview, available)
+}
+
 fn build_analytics_message(
     username: Option<&str>,
     details: &NormalizedDetails,
@@ -445,7 +492,7 @@ fn build_analytics_message(
     let who = username
         .map(|username| format!("@{}", escape_html(username)))
         .unwrap_or_else(|| "Someone".to_string());
-    let what = build_result_title(&details.title, details.year.as_deref());
+    let what = escape_html(&build_result_title_plain(&details.title, details.year.as_deref()));
     let where_text = query
         .map(|query| format!("for query <code>{}</code>", escape_html(query)))
         .unwrap_or_else(|| "from trends".to_string());
@@ -523,10 +570,10 @@ fn details_load_failed_message(locale: Locale) -> &'static str {
     }
 }
 
-fn format_genre_label(genre: &str, locale: Locale) -> String {
+fn format_genre_label_plain(genre: &str, locale: Locale) -> String {
     match locale {
-        Locale::En => escape_html(genre),
-        Locale::Ru => escape_html(&title_case_russian_words(genre)),
+        Locale::En => genre.to_string(),
+        Locale::Ru => title_case_russian_words(genre),
     }
 }
 
@@ -581,6 +628,25 @@ fn is_russian_genre_stopword(word: &str) -> bool {
 
 fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+fn truncate_chars_with_ellipsis(value: &str, max_chars: usize) -> Option<String> {
+    if max_chars == 0 {
+        return None;
+    }
+
+    let length = value.chars().count();
+    if length <= max_chars {
+        return Some(value.to_string());
+    }
+
+    if max_chars <= 3 {
+        return Some(value.chars().take(max_chars).collect());
+    }
+
+    let mut truncated = value.chars().take(max_chars - 3).collect::<String>();
+    truncated.push_str("...");
+    Some(truncated)
 }
 
 fn escape_html(value: &str) -> String {
@@ -827,6 +893,7 @@ mod tests {
             "Джон Уик",
             "Джон Уик",
             Some("2014"),
+            None,
             Some(&["боевик".to_string(), "триллер".to_string(), "криминал".to_string()]),
         );
 
@@ -841,6 +908,7 @@ mod tests {
             "Дюна",
             "Дюна",
             Some("2021"),
+            None,
             Some(&["научная фантастика".to_string(), "приключение".to_string()]),
         );
 
@@ -855,6 +923,7 @@ mod tests {
             "Локи",
             "Loki",
             Some("2021"),
+            None,
             Some(&[
                 "НФ и фэнтези".to_string(),
                 "боевик и приключения".to_string(),
@@ -865,6 +934,42 @@ mod tests {
         assert!(caption.contains(
             "<i>Сериал</i> • <i>НФ и Фэнтези, Боевик и Приключения, Семейный</i>"
         ));
+    }
+
+    #[test]
+    fn caption_includes_escaped_overview() {
+        let caption = build_caption(
+            Locale::En,
+            MediaType::Movie,
+            "John Wick",
+            "John Wick",
+            Some("2014"),
+            Some("Hitman & dog < revenge >"),
+            Some(&["Action".to_string()]),
+        );
+
+        assert!(caption.contains("<i>Movie</i> • <i>Action</i>"));
+        assert!(caption.contains(
+            "<blockquote expandable>Hitman &amp; dog &lt; revenge &gt;</blockquote>"
+        ));
+    }
+
+    #[test]
+    fn caption_truncates_overview_to_fit_telegram_limit() {
+        let long_overview = "a".repeat(2_000);
+        let caption = build_caption(
+            Locale::En,
+            MediaType::Movie,
+            "John Wick",
+            "John Wick",
+            Some("2014"),
+            Some(&long_overview),
+            Some(&["Action".to_string()]),
+        );
+
+        assert!(caption.contains("<blockquote expandable>"));
+        assert!(caption.contains("...</blockquote>"));
+        assert!(caption.chars().count() < 1_300);
     }
 
     #[test]
