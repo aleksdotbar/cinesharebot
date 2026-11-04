@@ -29,3 +29,16 @@ Run one heavy check at a time with one Cargo build job. On the shared devbox, us
 Existing request concurrency, upstream response buffering and provider `Retry-After` waits have not received workload acceptance testing. Container resource limits are safeguards, not a throughput or overload guarantee. Real-host, Cloudflare/DNS/HTTPS and Telegram acceptance remain separate authorized operations.
 
 Sources: [Telegram webhook contract](https://core.telegram.org/bots/api#setwebhook), [reqwest 0.12.28 error URL handling](https://github.com/seanmonstar/reqwest/blob/v0.12.28/src/error.rs).
+
+## Nix package
+
+The flake pins the same nixpkgs revision as the infrastructure foundation. Its source allowlist includes only `Cargo.toml`, committed `Cargo.lock` and `src/`; local environment files, keys, checkout metadata and build output are excluded from the package input.
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' build .#cinesharebot --no-update-lock-file --no-link --print-out-paths --max-jobs 1 --cores 1
+nix --extra-experimental-features 'nix-command flakes' develop --command cargo test --locked
+```
+
+The package uses native `rustPlatform.buildRustPackage`, vendors dependencies from `Cargo.lock` and runs the existing Rust test suite during the Nix build. Build on the devbox, then include this package in the infrastructure's native container module; no Rust compiler, source-repository credentials or registry client belongs on the VPS. The development shell supplies the pinned Rust/Cargo/rustfmt/Clippy tools.
+
+Package build success does not authorize running the bot or registering its webhook. Use the resource limits above; do not overlap Nix evaluation/build with another Cargo build or VM suite.
