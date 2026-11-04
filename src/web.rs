@@ -1,17 +1,14 @@
 use axum::{
     Json, Router,
-    extract::State,
-    http::{HeaderMap, StatusCode},
+    extract::{Request, State},
+    http::StatusCode,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use tracing::{info, warn};
 
-use crate::{
-    app::AppService,
-    config::Config,
-    telegram::Update,
-};
+use crate::{app::AppService, config::Config, telegram::Update};
 
 const TELEGRAM_SECRET_HEADER: &str = "x-telegram-bot-api-secret-token";
 pub const WEBHOOK_PATH: &str = "/telegram/webhook";
@@ -35,7 +32,13 @@ impl AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .route(WEBHOOK_PATH, post(handle_webhook))
+        .route(
+            WEBHOOK_PATH,
+            post(handle_webhook).route_layer(middleware::from_fn_with_state(
+                state.config.webhook_secret.clone(),
+                authenticate_webhook,
+            )),
+        )
         .with_state(state)
 }
 
@@ -43,22 +46,23 @@ async fn healthz() -> StatusCode {
     StatusCode::OK
 }
 
-async fn handle_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(update): Json<Update>,
+async fn authenticate_webhook(
+    State(expected_secret): State<String>,
+    request: Request,
+    next: Next,
 ) -> Response {
-    if let Some(expected_secret) = &state.config.webhook_secret {
-        let actual_secret = headers
-            .get(TELEGRAM_SECRET_HEADER)
-            .and_then(|value| value.to_str().ok());
-
-        if actual_secret != Some(expected_secret.as_str()) {
-            warn!("rejected webhook request with invalid telegram secret");
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
+    let actual_secret = request
+        .headers()
+        .get(TELEGRAM_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok());
+    if actual_secret != Some(expected_secret.as_str()) {
+        warn!("rejected webhook request with invalid telegram secret");
+        return StatusCode::UNAUTHORIZED.into_response();
     }
+    next.run(request).await
+}
 
+async fn handle_webhook(State(state): State<AppState>, Json(update): Json<Update>) -> Response {
     info!(
         update_id = update.update_id,
         update_kind = update_kind(&update),
@@ -88,7 +92,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use axum::{body::Body, http::{Request, StatusCode}};
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
@@ -159,13 +166,31 @@ mod tests {
             bot_token: "secret-token".to_string(),
             tmdb_key: "tmdb".to_string(),
             analytics_chat_id: -100,
-            webhook_secret: Some("header-secret".to_string()),
+            webhook_secret: "header-secret".to_string(),
             webhook_base_url: None,
             bind_address: "127.0.0.1:3000".parse().unwrap(),
         };
         let service = AppService::new(777, "cinebot".to_string(), -100, telegram, tmdb);
 
         AppState::new(config, service)
+    }
+
+    #[tokio::test]
+    async fn security_rejects_unauthenticated_body_before_json_parsing() {
+        let app = build_router(test_state(
+            Arc::new(MockTelegram::default()),
+            Arc::new(MockTmdb::default()),
+        ));
+        let response = app
+            .oneshot(
+                Request::post(WEBHOOK_PATH)
+                    .header("content-type", "application/json")
+                    .body(Body::from("not valid json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -282,7 +307,9 @@ mod tests {
                 Request::post(WEBHOOK_PATH)
                     .header("content-type", "application/json")
                     .header("x-telegram-bot-api-secret-token", "header-secret")
-                    .body(Body::from(json!({"update_id": 1, "edited_message": {}}).to_string()))
+                    .body(Body::from(
+                        json!({"update_id": 1, "edited_message": {}}).to_string(),
+                    ))
                     .unwrap(),
             )
             .await

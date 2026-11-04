@@ -28,12 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(webhook_base_url) = &config.webhook_base_url {
         let request = SetWebhookRequest {
-            url: format!(
-                "{}{}",
-                webhook_base_url.trim_end_matches('/'),
-                WEBHOOK_PATH
-            ),
-            secret_token: config.webhook_secret.clone(),
+            url: format!("{}{}", webhook_base_url.trim_end_matches('/'), WEBHOOK_PATH),
+            secret_token: Some(config.webhook_secret.clone()),
             allowed_updates: Some(vec![
                 "message".to_string(),
                 "inline_query".to_string(),
