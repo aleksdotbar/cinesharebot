@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
 use cinesharebot::{
     app::AppService,
@@ -43,8 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop_pending_updates: Some(false),
         };
 
-        telegram_client.set_webhook(request).await?;
-        info!("telegram webhook configured");
+        // The public hostname may not resolve until the platform routes this
+        // instance, and Telegram rejects unresolvable webhooks; keep serving.
+        tokio::spawn(register_webhook(telegram_client.clone(), request));
     }
 
     let service = AppService::new(
@@ -101,6 +102,23 @@ async fn shutdown_signal() {
     }
 }
 
+async fn register_webhook(client: Arc<TelegramClient>, request: SetWebhookRequest) {
+    let mut delay = std::time::Duration::from_secs(2);
+    loop {
+        match client.set_webhook(request.clone()).await {
+            Ok(_) => {
+                info!("telegram webhook configured");
+                return;
+            }
+            Err(error) => {
+                warn!(%error, retry_in_s = delay.as_secs(), "telegram webhook not configured yet")
+            }
+        }
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(std::time::Duration::from_secs(60));
+    }
+}
+
 fn healthcheck() -> bool {
     use std::io::{Read, Write};
     use std::time::Duration;
@@ -109,7 +127,8 @@ fn healthcheck() -> bool {
     let Ok(address) = format!("127.0.0.1:{port}").parse() else {
         return false;
     };
-    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2)) else {
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2))
+    else {
         return false;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
