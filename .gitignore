@@ -11,7 +11,3 @@
 
 # OS/editor noise
 .DS_Store
-
-# Local Nix build links
-/result
-/result-*
